@@ -109,6 +109,21 @@
   #accountBg { z-index: 20; }   /* s'ouvre par-dessus le menu Options */
   #pinBg { z-index: 30; }
   #backupBg { z-index: 20; }
+  #installBg { z-index: 20; }
+  .menu-row.install { background: var(--accent); color: var(--on-accent); }
+  .menu-row.install small, .menu-row.install .arrow { color: inherit; opacity: .8; }
+  .steps { margin: 6px 0 0; padding-left: 22px; line-height: 1.7; }
+  .steps li { display: list-item; padding: 3px 0; border: none; cursor: default; }
+  .steps b { font-weight: 600; }
+  .share-ico {
+    display: inline-block; width: 14px; height: 16px; vertical-align: -2px;
+    border: 2px solid currentColor; border-top: none; border-radius: 0 0 3px 3px; position: relative; margin: 0 2px;
+  }
+  .share-ico::before { content: ""; position: absolute; left: 4px; top: -7px; width: 2px; height: 12px; background: currentColor; }
+  .share-ico::after {
+    content: ""; position: absolute; left: 1.5px; top: -7px; width: 5px; height: 5px;
+    border-left: 2px solid currentColor; border-top: 2px solid currentColor; transform: rotate(45deg);
+  }
   .backup-area {
     width: 100%; min-height: 90px; padding: 12px; font: 13px/1.4 ui-monospace, monospace; color: var(--text);
     background: var(--bg); border: 1px solid var(--line); border-radius: 12px; resize: vertical;
@@ -574,6 +589,18 @@
   </div>
 </div>
 
+<!-- Instructions d'installation (iPhone et navigateurs sans bouton automatique) -->
+<div class="sheet-bg" id="installBg">
+  <div class="sheet">
+    <h3>Installer Budget</h3>
+    <div id="installSteps"></div>
+    <div class="opt-note">Une fois installée, l'appli s'ouvre en plein écran depuis son icône, même sans connexion.</div>
+    <div class="actions">
+      <button type="button" class="btn-ghost" id="closeInstall">Compris</button>
+    </div>
+  </div>
+</div>
+
 <!-- Menu Options -->
 <div class="sheet-bg" id="optionsBg">
   <div class="sheet" id="options">
@@ -606,6 +633,14 @@
       <button type="button" class="menu-row" id="openBackup" style="margin-top:8px">
         <span>Sauvegarde et transfert<small>Copier ou importer toutes tes données</small></span>
         <span class="arrow">›</span>
+      </button>
+    </div>
+    <!-- Visible seulement sur le site, quand l'appli n'est pas encore installée -->
+    <div class="opt-group" id="installGroup" hidden>
+      <div class="opt-title">Application</div>
+      <button type="button" class="menu-row install" id="installBtn">
+        <span>Installer l'appli<small>Ajoute Budget à ton écran d'accueil</small></span>
+        <span class="arrow">↓</span>
       </button>
     </div>
     <div class="actions">
@@ -1796,6 +1831,70 @@ $("reportForm").addEventListener("submit", (e) => {
 $("rAutoBtn").onclick = () => { month.reportManuel = null; closeReport(); render(); save(); };
 $("rCancel").onclick = closeReport;
 $("reportBg").addEventListener("click", (e) => { if (e.target === $("reportBg")) closeReport(); });
+
+// ---------- 7 octies. Installer l'appli depuis le site ----------
+// Android / Chrome / Edge : le navigateur envoie "beforeinstallprompt", qu'on garde
+// pour afficher sa fenêtre d'installation au clic. iPhone : pas de bouton possible,
+// on affiche la marche à suivre dans Safari.
+
+let promptInstall = null;
+const ua = navigator.userAgent;
+const estIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const estSafariIOS = estIOS && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+const dejaInstallee = () =>
+  window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+function majBoutonInstall() {
+  // Caché dans Claude, dans l'appli déjà installée, et en ouvrant le fichier en local
+  const visible = !window.claude && !dejaInstallee() &&
+    (location.protocol === "https:" || location.hostname === "localhost");
+  $("installGroup").hidden = !visible;
+}
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();          // on garde la fenêtre pour notre bouton
+  promptInstall = e;
+  majBoutonInstall();
+});
+window.addEventListener("appinstalled", () => {
+  promptInstall = null;
+  $("installGroup").hidden = true;
+  setStatus("✓ Appli installée : tu la trouveras sur ton écran d'accueil.");
+});
+
+$("installBtn").onclick = async () => {
+  if (promptInstall) {
+    promptInstall.prompt();
+    const choix = await promptInstall.userChoice.catch(() => null);
+    if (choix && choix.outcome === "accepted") $("installGroup").hidden = true;
+    promptInstall = null;      // la fenêtre ne peut servir qu'une fois
+    return;
+  }
+  // Pas de fenêtre automatique : on explique
+  let html;
+  if (estSafariIOS) {
+    html = `<ol class="steps">
+      <li>Touche le bouton <b>Partager</b> <span class="share-ico"></span> en bas de Safari.</li>
+      <li>Fais défiler et choisis <b>Sur l'écran d'accueil</b>.</li>
+      <li>Touche <b>Ajouter</b> en haut à droite.</li></ol>`;
+  } else if (estIOS) {
+    html = `<ol class="steps">
+      <li>Sur iPhone, l'installation se fait uniquement depuis <b>Safari</b>.</li>
+      <li>Copie l'adresse de cette page et ouvre-la dans Safari.</li>
+      <li>Puis <b>Partager</b> <span class="share-ico"></span> → <b>Sur l'écran d'accueil</b>.</li></ol>`;
+  } else {
+    html = `<ol class="steps">
+      <li>Ouvre le menu du navigateur <b>⋮</b> (en haut à droite).</li>
+      <li>Choisis <b>Installer l'application</b> ou <b>Ajouter à l'écran d'accueil</b>.</li>
+      <li>Confirme avec <b>Installer</b>.</li></ol>
+      <div class="opt-note">Si l'option n'apparaît pas, ouvre la page dans <b>Chrome</b>.</div>`;
+  }
+  $("installSteps").innerHTML = html;
+  $("installBg").classList.add("open");
+};
+$("closeInstall").onclick = () => $("installBg").classList.remove("open");
+$("installBg").addEventListener("click", (e) => { if (e.target === $("installBg")) $("installBg").classList.remove("open"); });
+majBoutonInstall();
 
 // ---------- 8. Démarrage ----------
 

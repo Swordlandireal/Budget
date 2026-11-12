@@ -1,0 +1,1708 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f3f3f1">
+<!-- Version installable sur téléphone (ignorée quand l'appli tourne dans Claude) -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Budget">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>Budget</title>
+<style>
+  /* ===== Couleurs et réglages de base ===== */
+  :root {
+    --bg: #f4f5f2;
+    --card: #ffffff;
+    --text: #1c1f1d;
+    --muted: #6b716d;
+    --line: #e4e6e1;
+    --accent: #1f2937;      /* couleur principale (Minuit par défaut, modifiable dans Options) */
+    --accent-soft: #e8e9eb;
+    --on-accent: #ffffff;   /* texte posé sur la couleur principale */
+    --alert: #c0392b;       /* carte du résumé quand le budget est négatif */
+    --on-alert: #ffffff;
+    --in: #15803d;          /* revenus */
+    --out: #b4532a;         /* dépenses */
+    --save: #4f5bd5;        /* épargne */
+    --danger: #b42318;
+    --radius: 16px;
+  }
+  /* Thème sombre : activé par la classe "dark" sur <html> (voir réglages) */
+  html.dark {
+    --bg: #121413; --card: #1c1f1d; --text: #eef0ec; --muted: #9aa19c;
+    --line: #2c302d; --accent: #e5e7eb; --accent-soft: #2a2d31; --on-accent: #111827;
+    --alert: #f87171; --on-alert: #2b0b0b;
+    --in: #4ade80; --out: #fb923c; --save: #a5b4fc; --danger: #f87171;
+    color-scheme: dark;
+  }
+
+  /* ===== Onglets Budget / Bourse + écrans qui glissent ===== */
+  .tabs { display: flex; background: var(--card); border-radius: 12px; padding: 4px; gap: 4px; margin-bottom: 16px; }
+  .tabs button {
+    flex: 1; padding: 9px; border: none; border-radius: 9px; background: none;
+    color: var(--muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .tabs button.on { background: var(--accent); color: var(--on-accent); }
+  .pages {
+    display: flex; gap: 32px; align-items: flex-start;
+    overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+    scrollbar-width: none; transition: height .25s;
+  }
+  .pages::-webkit-scrollbar { display: none; }
+  .page { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; }
+
+  /* ===== Écran Bourse ===== */
+  .summary.bourse-summary { background: var(--save); }
+  html.dark .summary.bourse-summary { color: #1e1b4b; }
+  .two-line { flex: 1; min-width: 0; }
+  .two-line .name { display: block; }
+  .two-line small, .right small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .right { text-align: right; flex-shrink: 0; }
+  .right .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pos { color: var(--in) !important; }
+  .neg { color: var(--danger) !important; }
+  .ext-link {
+    width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); flex-shrink: 0;
+    display: grid; place-items: center; color: var(--muted); text-decoration: none; font-size: 15px;
+  }
+  .opt-field[hidden] { display: none; }
+
+  /* ===== Écran de verrouillage ===== */
+  .lock {
+    position: fixed; inset: 0; z-index: 100; background: var(--bg);
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom)); gap: 18px;
+  }
+  .lock.open { display: flex; }
+  .lock h2 { margin: 0; font-size: 22px; }
+  .lock p { margin: 0; color: var(--muted); font-size: 14px; text-align: center; min-height: 20px; }
+  .lock p.err { color: var(--danger); }
+  .dots { display: flex; gap: 14px; height: 16px; }
+  .dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--accent); }
+  .dots i.on { background: var(--accent); }
+  .dots.shake { animation: shake .35s; }
+  @keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+  .keypad { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px; margin-top: 8px; }
+  .keypad button {
+    height: 72px; border-radius: 50%; border: none; background: var(--card); color: var(--text);
+    font: inherit; font-size: 26px; cursor: pointer;
+  }
+  .keypad button:active { background: var(--accent-soft); }
+  .keypad .ghost { background: none; font-size: 22px; }
+  .bio-btn {
+    margin-top: 6px; padding: 12px 20px; border-radius: 12px; border: none;
+    background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .opt-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .opt-row button {
+    padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg);
+    color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  #accountBg { z-index: 20; }   /* s'ouvre par-dessus le menu Options */
+  #pinBg { z-index: 30; }
+  #backupBg { z-index: 20; }
+  .backup-area {
+    width: 100%; min-height: 90px; padding: 12px; font: 13px/1.4 ui-monospace, monospace; color: var(--text);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 12px; resize: vertical;
+  }       /* ...et le code PIN par-dessus les paramètres du compte */
+  .menu-row {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px; border-radius: 12px; border: none; background: var(--bg); color: var(--text);
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .menu-row small { display: block; color: var(--muted); font-size: 13px; }
+  .menu-row .arrow { color: var(--muted); font-size: 22px; }
+  .acc-block { background: var(--bg); border-radius: 12px; padding: 14px; margin-top: 12px; }
+  .acc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .acc-head b { font-size: 15px; }
+  .badge { font-size: 12px; padding: 3px 8px; border-radius: 20px; background: var(--line); color: var(--muted); white-space: nowrap; }
+  .badge.on { background: var(--accent); color: var(--on-accent); }
+  .acc-block .opt-row button { background: var(--card); }
+  .opt-note { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .opt-note.err { color: var(--danger); }
+  .opt-note.ok { color: var(--in); }
+
+  /* ===== Menu Options ===== */
+  .header-right { display: flex; gap: 8px; }
+  .opt-group { margin-top: 14px; }
+  .opt-title { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .segmented { display: flex; background: var(--bg); border-radius: 12px; padding: 4px; gap: 4px; }
+  .segmented button {
+    flex: 1; padding: 10px 6px; border: none; border-radius: 9px; background: none;
+    color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .segmented button.on { background: var(--card); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; }
+  .switch-row span small { display: block; color: var(--muted); font-size: 13px; }
+  .sheet .switch-row { display: flex; margin: 0; color: var(--text); font-size: 15px; }
+  .switch { position: relative; display: block; width: 50px; height: 30px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .switch i {
+    position: absolute; inset: 0; border-radius: 15px; background: var(--line); transition: background .2s;
+  }
+  .switch i::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px;
+    border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+  .switch input:checked + i { background: var(--accent); }
+  /* Pastilles de couleur */
+  .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .swatch {
+    display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 0;
+    border: none; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .swatch i {
+    width: 38px; height: 38px; border-radius: 50%; display: block;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.08);
+  }
+  .swatch.on i { outline: 3px solid var(--text); outline-offset: 3px; }
+  .swatch.on { font-weight: 600; }
+  .switch input:checked + i::after { transform: translateX(20px); }
+  /* Compte dans le négatif : la couleur principale passe au rouge */
+  body.negative .summary:not(.bourse-summary) { background: var(--alert); color: var(--on-alert); }
+  body, .summary, .add, .btn-primary, .copy-banner { transition: background-color .4s, color .4s; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* Les env(safe-area-inset-*) évitent l'encoche et la barre du bas des iPhone */
+  .app {
+    max-width: 480px; margin: 0 auto;
+    padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+             calc(96px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  }
+
+  /* ===== En-tête : navigation entre les mois ===== */
+  header { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 16px; }
+  header { gap: 8px; }
+  header h1 { flex: 1; text-align: center; font-size: 20px; margin: 0; text-transform: capitalize; }
+  .nav-btn {
+    width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font-size: 20px; cursor: pointer;
+  }
+
+  /* ===== Carte résumé ===== */
+  .summary {
+    background: var(--accent); color: var(--on-accent); border-radius: var(--radius); padding: 20px;
+  }
+  .summary .label { font-size: 13px; opacity: .85; }
+  .summary .big { font-size: 34px; font-weight: 700; letter-spacing: -.5px; margin: 2px 0 14px; }
+  .bar { height: 8px; border-radius: 4px; background: color-mix(in srgb, currentColor 25%, transparent); overflow: hidden; }
+  .bar > div { height: 100%; background: currentColor; border-radius: 4px; transition: width .3s; }
+  .summary .row { display: flex; justify-content: space-between; margin-top: 12px; font-size: 14px; }
+  .summary .row b { display: block; font-size: 17px; }
+
+  /* ===== Sections Revenus / Dépenses ===== */
+  section { background: var(--card); border-radius: var(--radius); margin-top: 16px; padding: 6px 16px 10px; }
+  /* Sections dépliables : toucher le titre pour replier / déplier */
+  section h2.toggle { cursor: pointer; user-select: none; padding: 4px 0; }
+  section h2.toggle > span { display: flex; align-items: center; gap: 8px; }
+  .chev {
+    width: 8px; height: 8px; border: solid var(--muted); border-width: 0 2px 2px 0;
+    transform: rotate(45deg) translate(-2px, -2px); transition: transform .2s; flex-shrink: 0;
+  }
+  section.collapsed .chev { transform: rotate(-45deg); }
+  section.collapsed ul, section.collapsed .add { display: none; }
+  section.collapsed h2 { margin-bottom: 12px; }
+  section h2 {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 15px; margin: 12px 0 6px;
+  }
+  section h2 small { color: var(--muted); font-weight: 500; font-size: 13px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: flex; align-items: center; gap: 12px; padding: 12px 0;
+    border-bottom: 1px solid var(--line); cursor: pointer;
+  }
+  li:last-child { border-bottom: none; }
+  li .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li .amount { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .income .amount { color: var(--in); }
+  .expense .amount { color: var(--out); }
+  .saving .amount { color: var(--save); }
+  li.paid .name, li.paid .amount { color: var(--muted); text-decoration: line-through; }
+
+  /* Case "payé" ronde */
+  .check {
+    width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line);
+    background: none; flex-shrink: 0; cursor: pointer; display: grid; place-items: center; padding: 0;
+  }
+  li.paid .check { background: var(--accent); border-color: var(--accent); }
+  li.paid .check::after { content: ""; width: 6px; height: 11px; border: solid var(--on-accent); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg) translate(-1px,-1px); }
+
+  .add {
+    width: 100%; margin-top: 6px; padding: 12px; border-radius: 12px;
+    border: 1.5px dashed var(--line); background: none; color: var(--accent);
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+
+  /* Bandeau "reprendre le mois précédent" */
+  .copy-banner {
+    margin-top: 16px; background: var(--accent-soft); border-radius: var(--radius);
+    padding: 14px 16px; font-size: 14px;
+  }
+  .copy-banner button {
+    margin-top: 10px; width: 100%; padding: 12px; border: none; border-radius: 12px;
+    background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 600; cursor: pointer;
+  }
+
+  .status { text-align: center; color: var(--muted); font-size: 12px; margin-top: 20px; }
+
+  /* ===== Fenêtre d'ajout / modification (panneau du bas) ===== */
+  .sheet-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.4);
+    display: none; align-items: flex-end; justify-content: center; z-index: 10;
+  }
+  .sheet-bg.open { display: flex; }
+  .sheet {
+    background: var(--card); width: 100%; max-width: 480px;
+    border-radius: 20px 20px 0 0; padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
+    max-height: 92vh; overflow-y: auto;
+    animation: up .2s ease-out;
+  }
+  @keyframes up { from { transform: translateY(40px); opacity: 0; } }
+  .sheet h3 { margin: 0 0 14px; font-size: 18px; }
+  .sheet label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  .sheet input {
+    width: 100%; padding: 14px; font: inherit; font-size: 17px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+  }
+  .sheet input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .sheet .actions { display: flex; gap: 10px; margin-top: 18px; }
+  .sheet .actions button {
+    flex: 1; padding: 14px; border-radius: 12px; font: inherit; font-weight: 600; cursor: pointer; border: none;
+  }
+  .btn-primary { background: var(--accent); color: var(--on-accent); }
+  .btn-ghost { background: var(--bg); color: var(--text); }
+  .btn-delete { background: none !important; color: var(--danger); flex: 0 0 auto !important; }
+  .error { color: var(--danger); font-size: 13px; min-height: 18px; margin-top: 6px; }
+
+  /* ===== Dépenses variables ===== */
+  .variable .amount { color: var(--out); }
+  .var-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .var-top { display: flex; align-items: center; gap: 12px; }
+  .var-top .sub { color: var(--muted); font-size: 13px; font-weight: 400; }
+  .mini-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .mini-bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
+  .mini-bar.over > div { background: var(--danger); }
+  .var-hint { font-size: 12px; color: var(--muted); }
+  .var-hint.over { color: var(--danger); }
+  .summary .estimate { font-size: 13px; opacity: .9; margin: -8px 0 14px; }
+
+  /* Fenêtre de détail d'une catégorie */
+  .quick-add { display: flex; gap: 8px; margin-top: 4px; }
+  .quick-add input { flex: 1; }
+  .quick-add button {
+    padding: 0 18px; border: none; border-radius: 12px; font: inherit; font-weight: 600;
+    background: var(--accent); color: var(--on-accent); cursor: pointer;
+  }
+  .spends { max-height: 38vh; overflow-y: auto; margin-top: 12px; }
+  .spends li { cursor: default; }
+  .spends .date { color: var(--muted); font-size: 13px; width: 56px; flex-shrink: 0; }
+  .spends .del {
+    border: none; background: none; color: var(--muted); font-size: 20px; cursor: pointer; padding: 0 4px;
+  }
+  .link-btn { background: none; border: none; color: var(--accent); font: inherit; font-size: 14px; cursor: pointer; padding: 0; }
+  .detail-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .detail-total { color: var(--muted); font-size: 14px; margin: -8px 0 12px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <button class="nav-btn" id="prev" aria-label="Mois précédent">‹</button>
+    <h1 id="monthTitle">…</h1>
+    <button class="nav-btn" id="next" aria-label="Mois suivant">›</button>
+    <button class="nav-btn" id="openOptions" aria-label="Options">⚙︎</button>
+  </header>
+
+  <!-- Onglets : on peut aussi glisser le doigt d'un écran à l'autre -->
+  <div class="tabs" id="tabs">
+    <button type="button" data-page="0" class="on">Budget</button>
+    <button type="button" data-page="1">Bourse</button>
+  </div>
+
+  <div class="pages" id="pages">
+  <!-- ===== Écran 1 : Budget ===== -->
+  <div class="page" id="pageBudget">
+
+  <!-- Résumé du mois -->
+  <div class="summary">
+    <div class="label" id="restLabel">Reste à vivre ce mois-ci</div>
+    <div class="big" id="rest">0,00 €</div>
+    <div class="estimate" id="estimate"></div>
+    <div class="bar"><div id="barFill" style="width:0%"></div></div>
+    <div class="row">
+      <div><span class="label">Revenus</span><b id="totalIn">0 €</b></div>
+      <div style="text-align:center"><span class="label">Dépenses</span><b id="totalOut">0 €</b></div>
+      <div style="text-align:right"><span class="label">Reste à payer</span><b id="toPay">0 €</b></div>
+    </div>
+  </div>
+
+  <!-- Proposé quand un mois est vide -->
+  <div class="copy-banner" id="copyBanner" hidden>
+    <span id="copyText"></span>
+    <button id="copyBtn">Reprendre ces lignes</button>
+  </div>
+
+  <section class="income" data-section="revenus">
+    <h2 class="toggle" role="button" tabindex="0"><span><i class="chev"></i>Revenus</span> <small id="countIn"></small></h2>
+    <ul id="listIn"></ul>
+    <button class="add" data-add="revenus">+ Ajouter un revenu</button>
+  </section>
+
+  <section class="expense" data-section="depenses">
+    <h2 class="toggle" role="button" tabindex="0"><span><i class="chev"></i>Prélèvements automatiques</span> <small id="countOut"></small></h2>
+    <ul id="listOut"></ul>
+    <button class="add" data-add="depenses">+ Ajouter un prélèvement</button>
+  </section>
+
+  <section class="saving" data-section="epargne">
+    <h2 class="toggle" role="button" tabindex="0"><span><i class="chev"></i>Épargne</span> <small id="countSave"></small></h2>
+    <ul id="listSave"></ul>
+    <button class="add" data-add="epargne">+ Ajouter un objectif d'épargne</button>
+  </section>
+
+  <section class="variable" data-section="variables">
+    <h2 class="toggle" role="button" tabindex="0"><span><i class="chev"></i>Dépenses variables</span> <small id="countVar"></small></h2>
+    <ul id="listVar"></ul>
+    <button class="add" data-add="variables">+ Ajouter une catégorie</button>
+  </section>
+
+  <div class="status" id="status">Chargement…</div>
+  </div>
+
+  <!-- ===== Écran 2 : Bourse (cours saisis à la main) ===== -->
+  <div class="page" id="pageBourse">
+    <div class="summary bourse-summary">
+      <div class="label">Valeur de mes placements</div>
+      <div class="big" id="pfValue">0,00 €</div>
+      <div class="estimate" id="pfInfo"></div>
+      <div class="row">
+        <div><span class="label">Investi</span><b id="pfInvested">0 €</b></div>
+        <div style="text-align:right"><span class="label">Plus/moins-value</span><b id="pfGain">0 €</b></div>
+      </div>
+    </div>
+
+    <section data-section="placements">
+      <h2 class="toggle" role="button" tabindex="0"><span><i class="chev"></i>Mes placements</span> <small id="countPf"></small></h2>
+      <ul id="listPf"></ul>
+      <button class="add" data-bourse="placements">+ Ajouter un placement</button>
+    </section>
+
+    <section data-section="indices">
+      <h2 class="toggle" role="button" tabindex="0"><span><i class="chev"></i>Grands indices</span> <small id="countIdx"></small></h2>
+      <ul id="listIdx"></ul>
+      <button class="add" data-bourse="indices">+ Ajouter un indice</button>
+    </section>
+
+    <div class="status">Les cours sont saisis à la main. Touche ↗ pour voir le cours en direct, puis touche la ligne pour le mettre à jour.</div>
+  </div>
+  </div><!-- fin .pages -->
+</div>
+
+<!-- Ajout / modification d'un placement ou d'un indice -->
+<div class="sheet-bg" id="bSheetBg">
+  <form class="sheet" id="bSheet" autocomplete="off">
+    <h3 id="bTitle">Ajouter</h3>
+    <label for="bNom">Nom</label>
+    <input id="bNom" maxlength="60">
+    <div class="opt-field" id="wrapQte">
+      <label for="bQte">Quantité détenue</label>
+      <input id="bQte" inputmode="decimal" placeholder="Ex. : 10">
+    </div>
+    <div class="opt-field" id="wrapAchat">
+      <label for="bAchat">Prix d'achat moyen par part (€)</label>
+      <input id="bAchat" inputmode="decimal" placeholder="0,00">
+    </div>
+    <label for="bCours" id="bCoursLabel">Cours actuel (€)</label>
+    <input id="bCours" inputmode="decimal" placeholder="Laisse vide si inconnu">
+    <div class="opt-field" id="wrapVar">
+      <label for="bVar">Variation du jour (%)</label>
+      <input id="bVar" inputmode="decimal" placeholder="Ex. : -0,8">
+    </div>
+    <label for="bLien">Lien vers le cours en direct (facultatif)</label>
+    <input id="bLien" inputmode="url" placeholder="Par défaut : recherche Google">
+    <div class="error" id="bError"></div>
+    <div class="actions">
+      <button type="button" class="btn-delete" id="bDelete" hidden>Supprimer</button>
+      <button type="button" class="btn-ghost" id="bCancel">Annuler</button>
+      <button type="submit" class="btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</div>
+
+<!-- Panneau d'ajout / modification -->
+<div class="sheet-bg" id="sheetBg">
+  <form class="sheet" id="sheet" autocomplete="off">
+    <h3 id="sheetTitle">Ajouter</h3>
+    <label for="fLabel">Nom</label>
+    <input id="fLabel" placeholder="Ex. : Loyer, Salaire…" maxlength="60">
+    <label for="fAmount" id="fAmountLabel">Montant (€)</label>
+    <input id="fAmount" inputmode="decimal" placeholder="0,00">
+    <div class="error" id="fError"></div>
+    <div class="actions">
+      <button type="button" class="btn-delete" id="fDelete" hidden>Supprimer</button>
+      <button type="button" class="btn-ghost" id="fCancel">Annuler</button>
+      <button type="submit" class="btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</div>
+
+<!-- Détail d'une catégorie variable : liste des dépenses + ajout rapide -->
+<div class="sheet-bg" id="detailBg">
+  <form class="sheet" id="detail" autocomplete="off">
+    <div class="detail-head">
+      <h3 id="dTitle">Courses</h3>
+      <button type="button" class="link-btn" id="dEdit">Modifier</button>
+    </div>
+    <div class="detail-total" id="dTotal"></div>
+    <label for="dAmount">Nouvelle dépense (€)</label>
+    <div class="quick-add">
+      <input id="dAmount" inputmode="decimal" placeholder="0,00">
+      <button type="submit">Ajouter</button>
+    </div>
+    <div class="error" id="dError"></div>
+    <ul class="spends" id="dList"></ul>
+    <div class="actions">
+      <button type="button" class="btn-ghost" id="dClose">Fermer</button>
+    </div>
+  </form>
+</div>
+
+<!-- Écran de verrouillage -->
+<div class="lock" id="lock" aria-modal="true" role="dialog">
+  <h2>Budget</h2>
+  <p id="lockMsg">Entre ton code</p>
+  <div class="dots" id="lockDots"></div>
+  <div class="keypad" id="keypad"></div>
+  <button type="button" class="bio-btn" id="bioUnlock" hidden>Déverrouiller avec l'empreinte</button>
+</div>
+
+<!-- Définir / modifier le code PIN -->
+<div class="sheet-bg" id="pinBg">
+  <form class="sheet" id="pinForm" autocomplete="off">
+    <h3>Code de verrouillage</h3>
+    <label for="pin1">Nouveau code (4 à 6 chiffres)</label>
+    <input id="pin1" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+    <label for="pin2">Confirme le code</label>
+    <input id="pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password">
+    <div class="error" id="pinError"></div>
+    <div class="actions">
+      <button type="button" class="btn-ghost" id="pinCancel">Annuler</button>
+      <button type="submit" class="btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</div>
+
+<!-- Paramètres du compte -->
+<div class="sheet-bg" id="accountBg">
+  <div class="sheet">
+    <h3>Paramètres du compte</h3>
+    <div class="acc-block">
+      <div class="acc-head"><b>Code PIN</b><span class="badge" id="pinBadge"></span></div>
+      <div class="opt-row" id="pinButtons"></div>
+    </div>
+    <div class="acc-block">
+      <div class="acc-head"><b>Empreinte digitale</b><span class="badge" id="bioBadge"></span></div>
+      <div class="opt-row" id="bioButtons"></div>
+      <div class="opt-note" id="bioInfo"></div>
+    </div>
+    <div class="opt-note" id="lockNote"></div>
+    <div class="actions">
+      <button type="button" class="btn-ghost" id="closeAccount">Retour</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sauvegarde et transfert -->
+<div class="sheet-bg" id="backupBg">
+  <div class="sheet">
+    <h3>Sauvegarde et transfert</h3>
+    <div class="acc-block">
+      <div class="acc-head"><b>Exporter</b></div>
+      <div class="opt-row">
+        <button type="button" id="bkCopy">Copier mes données</button>
+        <button type="button" id="bkFile">Télécharger un fichier</button>
+      </div>
+      <div class="opt-note">Tous tes mois, ta bourse et tes options. Garde-les en lieu sûr (notes, mail à toi-même…).</div>
+    </div>
+    <div class="acc-block">
+      <div class="acc-head"><b>Importer</b></div>
+      <textarea class="backup-area" id="bkText" placeholder="Colle ici des données copiées depuis l'appli"></textarea>
+      <div class="opt-row" style="margin-top:8px">
+        <button type="button" id="bkImport">Importer le texte collé</button>
+        <button type="button" id="bkPick">Choisir un fichier</button>
+        <input type="file" id="bkInput" accept=".json,application/json,text/plain" hidden>
+      </div>
+      <div class="opt-note">Les mois importés remplacent ceux qui existent déjà. Les autres ne sont pas touchés.</div>
+    </div>
+    <div class="opt-note" id="bkNote"></div>
+    <div class="actions">
+      <button type="button" class="btn-ghost" id="closeBackup">Retour</button>
+    </div>
+  </div>
+</div>
+
+<!-- Menu Options -->
+<div class="sheet-bg" id="optionsBg">
+  <div class="sheet" id="options">
+    <h3>Options</h3>
+    <div class="opt-group">
+      <div class="opt-title">Thème</div>
+      <div class="segmented" id="themeChoice">
+        <button type="button" data-theme="auto">Automatique</button>
+        <button type="button" data-theme="light">Clair</button>
+        <button type="button" data-theme="dark">Sombre</button>
+      </div>
+    </div>
+    <div class="opt-group">
+      <div class="opt-title">Couleur</div>
+      <div class="swatches" id="colorChoice"></div>
+    </div>
+    <div class="opt-group">
+      <label class="switch-row">
+        <span>Alerte rouge si le budget est négatif
+          <small>La carte du résumé passe en rouge quand le reste à vivre est sous 0 €</small></span>
+        <span class="switch"><input type="checkbox" id="optRed"><i></i></span>
+      </label>
+    </div>
+    <div class="opt-group">
+      <div class="opt-title">Compte</div>
+      <button type="button" class="menu-row" id="openAccount">
+        <span>Paramètres du compte<small id="accountSummary">Code PIN et empreinte digitale</small></span>
+        <span class="arrow">›</span>
+      </button>
+      <button type="button" class="menu-row" id="openBackup" style="margin-top:8px">
+        <span>Sauvegarde et transfert<small>Copier ou importer toutes tes données</small></span>
+        <span class="arrow">›</span>
+      </button>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn-ghost" id="closeOptions">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   MON BUDGET — V2
+   Chaque mois contient trois listes :
+     revenus   : [{ id, label, montant }]
+     depenses  : [{ id, label, montant, paye }]          (prélèvements automatiques)
+     epargne   : [{ id, label, montant, paye }]          (objectifs d'épargne du mois,
+                 "paye" = versé ; retirés du reste à vivre dès le départ)
+     variables : [{ id, label, prevu, achats: [{ id, montant, date }] }]
+                 -> catégories dont le montant n'est pas connu d'avance
+                    (courses, électricité…). "prevu" est facultatif (0 = pas de budget).
+   Les données sont rangées par mois, avec une clé du type "2026-11".
+   ===================================================================== */
+
+// ---------- 1. Petits utilitaires ----------
+
+const $ = (id) => document.getElementById(id);
+
+// Formate un nombre en euros : 1234.5 -> "1 234,50 €"
+const euros = (n) =>
+  n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+
+// Clé d'un mois : new Date(2026, 10) -> "2026-11"
+const monthKey = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+
+// Mois décalé de n mois (n = -1 : mois précédent)
+const shiftMonth = (d, n) => new Date(d.getFullYear(), d.getMonth() + n, 1);
+
+// Identifiant unique pour chaque ligne
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+// Convertit "1 234,50" ou "1234.5" en nombre ; renvoie NaN si invalide
+const parseAmount = (txt) => parseFloat(String(txt).replace(/\s/g, "").replace(",", "."));
+
+// ---------- 2. Stockage ----------
+// On essaie d'abord le stockage en ligne (synchronisé entre appareils).
+// S'il n'est pas disponible, on se rabat sur la mémoire du navigateur.
+
+const storage = {
+  db: null,     // stockage en ligne
+  uid: null,    // identifiant de l'utilisateur
+  mode: "local",
+
+  async init() {
+    try {
+      if (window.claude && claude.use) {
+        const [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
+        const uid = user ? await user.id() : null;
+        if (db && uid) { this.db = db; this.uid = uid; this.mode = "cloud"; }
+      }
+    } catch (e) { /* on reste en local */ }
+  },
+
+  ref(key) { return this.db.collection("data/users/" + this.uid).doc(key); },
+
+  async load(key) {
+    if (this.mode === "cloud") {
+      try {
+        const snap = await withTimeout(this.ref(key).get(), 10000);
+        return snap.exists ? snap.data() : null;
+      } catch (e) { setStatus("Connexion impossible pour le moment, réessaie plus tard."); return null; }
+    }
+    try { return JSON.parse(localStorage.getItem("budget-" + key)); } catch (e) { return null; }
+  },
+
+  async save(key, data) {
+    if (this.mode === "cloud") {
+      await this.ref(key).set(data);
+    } else {
+      localStorage.setItem("budget-" + key, JSON.stringify(data));
+    }
+  },
+
+  // Toutes les données (mois, bourse, options) : { "2026-11": {...}, "bourse": {...}, "settings": {...} }
+  async exportAll() {
+    const out = {};
+    if (this.mode === "cloud") {
+      const snap = await withTimeout(this.db.collection("data/users/" + this.uid).get(), 15000);
+      for (const d of snap.docs) out[d.id] = d.data();
+    } else {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        const m = /^budget-(\d{4}-\d{2}|settings|bourse)$/.exec(k);
+        if (m) out[m[1]] = JSON.parse(localStorage.getItem(k));
+      }
+    }
+    return out;
+  },
+};
+
+// Clés acceptées à l'import : un mois "AAAA-MM", la bourse ou les options
+const CLE_VALIDE = /^(\d{4}-\d{2}|settings|bourse)$/;
+
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+}
+
+// ---------- 3. État de l'application ----------
+
+let current = new Date();          // mois affiché
+current = shiftMonth(current, 0);  // ramené au 1er du mois
+let month = { revenus: [], depenses: [], epargne: [], variables: [] };  // données du mois affiché
+let detailCat = null;              // catégorie variable ouverte dans le détail
+let previous = null;               // données du mois précédent (pour la copie)
+let editing = null;                // ligne en cours de modification
+
+// ---------- 4. Chargement et sauvegarde d'un mois ----------
+
+async function loadMonth() {
+  setStatus("Chargement…");
+  const key = monthKey(current);
+  const data = await storage.load(key);
+  month = {
+    revenus: (data && data.revenus) || [],
+    depenses: (data && data.depenses) || [],
+    epargne: (data && data.epargne) || [],
+    variables: (data && data.variables) || [],
+  };
+  // Si le mois est vide, on regarde le mois précédent pour proposer de le copier
+  previous = null;
+  if (!lineCount(month)) {
+    const prev = await storage.load(monthKey(shiftMonth(current, -1)));
+    if (prev && lineCount(prev)) previous = prev;
+  }
+  render();
+  setStatus(storage.mode === "cloud"
+    ? "✓ Enregistré en ligne, accessible depuis tous tes appareils"
+    : "Enregistré sur cet appareil uniquement");
+}
+
+// Sauvegarde groupée : on attend une courte pause avant d'écrire
+let saveTimer = null;
+let saving = Promise.resolve();
+function save() {
+  clearTimeout(saveTimer);
+  const key = monthKey(current);
+  const snapshot = JSON.parse(JSON.stringify(month));
+  saveTimer = setTimeout(() => {
+    saving = saving.then(() => storage.save(key, snapshot)).catch(() =>
+      setStatus("⚠️ La sauvegarde a échoué, tes dernières modifications risquent d'être perdues."));
+  }, 400);
+}
+
+// Nombre total de lignes d'un mois (pour savoir s'il est vide)
+const lineCount = (m) =>
+  (m.revenus || []).length + (m.depenses || []).length +
+  (m.epargne || []).length + (m.variables || []).length;
+
+// ---------- 5. Affichage ----------
+
+const sum = (arr) => arr.reduce((t, x) => t + x.montant, 0);
+const spent = (cat) => sum(cat.achats || []);   // total déjà dépensé dans une catégorie
+
+function render() {
+  // Titre du mois : "novembre 2026"
+  $("monthTitle").textContent = current.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+
+  // Totaux
+  const totalIn = sum(month.revenus);
+  const totalVar = month.variables.reduce((t, c) => t + spent(c), 0);
+  const totalOut = sum(month.depenses) + totalVar;
+  // Reste à payer = prélèvements non cochés + ce qu'il reste des budgets variables prévus
+  const varLeft = month.variables.reduce((t, c) => t + Math.max(0, (c.prevu || 0) - spent(c)), 0);
+  // Épargne : l'objectif du mois est retiré du reste à vivre dès le départ
+  const totalSave = sum(month.epargne);
+  const saveLeft = sum(month.epargne.filter((e) => !e.paye));   // pas encore versé
+  const toPay = sum(month.depenses.filter((d) => !d.paye)) + varLeft + saveLeft;
+  const rest = totalIn - totalOut - totalSave;
+
+  $("totalIn").textContent = euros(totalIn);
+  $("totalOut").textContent = euros(totalOut);
+  $("toPay").textContent = euros(toPay);
+  $("rest").textContent = euros(rest);
+  // Reste à vivre négatif : toute l'appli passe en rouge
+  // (sauf si l'option est désactivée dans le menu Options)
+  const negatif = rest < 0 && settings.alerteRouge;
+  document.body.classList.toggle("negative", negatif);
+  updateThemeColor();
+  $("restLabel").textContent = negatif ? "⚠️ Budget dans le négatif ce mois-ci" : "Reste à vivre ce mois-ci";
+  // Ligne sous le reste à vivre : épargne mise de côté + estimation de fin de mois
+  const infos = [];
+  if (totalSave > 0) infos.push(euros(totalSave) + " mis de côté");
+  // Estimation fin de mois : on compte chaque catégorie au plus élevé entre prévu et dépensé
+  if (varLeft > 0) infos.push("estimé en fin de mois : " + euros(rest - varLeft));
+  const txt = infos.join(" · ");
+  $("estimate").textContent = txt ? txt.charAt(0).toUpperCase() + txt.slice(1) : "";
+  // Barre : part des revenus déjà prise par les dépenses et l'épargne
+  const used = totalOut + totalSave;
+  const pct = totalIn > 0 ? Math.min(100, (used / totalIn) * 100) : (used > 0 ? 100 : 0);
+  $("barFill").style.width = pct + "%";
+
+  // En-têtes de section : un résumé visible même quand la section est repliée
+  $("countIn").textContent = month.revenus.length ? euros(totalIn) : "";
+  $("countOut").textContent = month.depenses.length
+    ? euros(sum(month.depenses)) + " · " + month.depenses.filter((d) => d.paye).length + "/" + month.depenses.length + " passés" : "";
+  $("countSave").textContent = month.epargne.length
+    ? euros(totalSave - saveLeft) + " versés sur " + euros(totalSave) : "";
+
+  // Listes
+  renderList($("listIn"), month.revenus, "revenus", "Aucun revenu pour ce mois.");
+  renderList($("listOut"), month.depenses, "depenses", "Aucun prélèvement pour ce mois.");
+  renderList($("listSave"), month.epargne, "epargne", "Indique combien tu veux mettre de côté ce mois-ci (Livret A, projet…).");
+  renderVariables();
+  $("countVar").textContent = month.variables.length ? euros(totalVar) + " dépensés" : "";
+
+  // Bandeau de copie
+  if (previous) {
+    const nom = shiftMonth(current, -1).toLocaleDateString("fr-FR", { month: "long" });
+    const n = lineCount(previous);
+    $("copyText").textContent = `Ce mois est vide. Reprendre les ${n} lignes de ${nom} ? Les prélèvements et l'épargne repartiront à cocher et les catégories variables à 0 €.`;
+    $("copyBanner").hidden = false;
+  } else {
+    $("copyBanner").hidden = true;
+  }
+}
+
+function renderList(ul, items, type, emptyText) {
+  ul.innerHTML = "";
+  if (!items.length) {
+    ul.innerHTML = `<div class="empty">${emptyText}</div>`;
+    return;
+  }
+  for (const item of items) {
+    const li = document.createElement("li");
+    if (item.paye) li.classList.add("paid");
+
+    // Case "payé" seulement pour les dépenses
+    // Case à cocher pour les prélèvements (passé) et l'épargne (versée)
+    if (type === "depenses" || type === "epargne") {
+      const check = document.createElement("button");
+      check.className = "check";
+      const mot = type === "epargne" ? "versé" : "passé";
+      check.setAttribute("aria-label", item.paye ? "Marquer comme non " + mot : "Marquer comme " + mot);
+      check.onclick = (e) => {
+        e.stopPropagation();       // ne pas ouvrir la fenêtre de modification
+        item.paye = !item.paye;
+        render(); save();
+      };
+      li.appendChild(check);
+    }
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = item.label;          // textContent : évite d'injecter du HTML
+    const amount = document.createElement("span");
+    amount.className = "amount";
+    amount.textContent = euros(item.montant);
+    li.append(name, amount);
+
+    li.onclick = () => openSheet(type, item);  // toucher une ligne = la modifier
+    ul.appendChild(li);
+  }
+}
+
+// Liste des catégories variables, avec une barre "dépensé / prévu"
+function renderVariables() {
+  const ul = $("listVar");
+  ul.innerHTML = "";
+  if (!month.variables.length) {
+    ul.innerHTML = `<div class="empty">Ajoute une catégorie (courses, électricité, essence…) puis note tes dépenses au fil du mois.</div>`;
+    return;
+  }
+  for (const cat of month.variables) {
+    const total = spent(cat);
+    const prevu = cat.prevu || 0;
+    const over = prevu > 0 && total > prevu;
+
+    const li = document.createElement("li");
+    li.className = "var-row";
+
+    const top = document.createElement("div");
+    top.className = "var-top";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = cat.label;
+    const amount = document.createElement("span");
+    amount.className = "amount";
+    amount.textContent = euros(total);
+    if (prevu > 0) {
+      const sub = document.createElement("span");
+      sub.className = "sub";
+      sub.textContent = " / " + euros(prevu);
+      amount.appendChild(sub);
+    }
+    top.append(name, amount);
+    li.appendChild(top);
+
+    if (prevu > 0) {
+      const bar = document.createElement("div");
+      bar.className = "mini-bar" + (over ? " over" : "");
+      bar.innerHTML = `<div style="width:${Math.min(100, (total / prevu) * 100)}%"></div>`;
+      const hint = document.createElement("div");
+      hint.className = "var-hint" + (over ? " over" : "");
+      hint.textContent = over
+        ? "Dépassement de " + euros(total - prevu)
+        : "Encore " + euros(prevu - total) + " disponibles";
+      li.append(bar, hint);
+    } else {
+      const hint = document.createElement("div");
+      hint.className = "var-hint";
+      const n = (cat.achats || []).length;
+      hint.textContent = n ? n + " dépense(s) notée(s)" : "Touche pour noter une dépense";
+      li.appendChild(hint);
+    }
+
+    li.onclick = () => openDetail(cat);
+    ul.appendChild(li);
+  }
+}
+
+function setStatus(txt) { $("status").textContent = txt; }
+
+// ---------- 6 bis. Détail d'une catégorie variable ----------
+
+function openDetail(cat) {
+  detailCat = cat;
+  $("dAmount").value = "";
+  $("dError").textContent = "";
+  renderDetail();
+  $("detailBg").classList.add("open");
+  setTimeout(() => $("dAmount").focus(), 50);
+}
+
+function renderDetail() {
+  const cat = detailCat;
+  $("dTitle").textContent = cat.label;
+  const total = spent(cat);
+  $("dTotal").textContent = "Dépensé ce mois : " + euros(total) +
+    (cat.prevu ? " sur " + euros(cat.prevu) + " prévus" : "");
+
+  const ul = $("dList");
+  ul.innerHTML = "";
+  // Les plus récentes en premier
+  const achats = [...(cat.achats || [])].reverse();
+  if (!achats.length) {
+    ul.innerHTML = `<div class="empty">Aucune dépense notée pour l'instant.</div>`;
+  }
+  for (const a of achats) {
+    const li = document.createElement("li");
+    const date = document.createElement("span");
+    date.className = "date";
+    date.textContent = new Date(a.date).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+    const amount = document.createElement("span");
+    amount.className = "amount name";
+    amount.textContent = euros(a.montant);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "del";
+    del.setAttribute("aria-label", "Supprimer cette dépense");
+    del.textContent = "×";
+    del.onclick = () => {
+      cat.achats = cat.achats.filter((x) => x !== a);
+      renderDetail(); render(); save();
+    };
+    li.append(date, amount, del);
+    ul.appendChild(li);
+  }
+}
+
+function closeDetail() { $("detailBg").classList.remove("open"); detailCat = null; }
+
+$("detail").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const montant = Math.round(parseAmount($("dAmount").value) * 100) / 100;
+  if (!(montant > 0)) return ($("dError").textContent = "Indique un montant supérieur à 0.");
+  detailCat.achats = detailCat.achats || [];
+  detailCat.achats.push({ id: newId(), montant, date: new Date().toISOString() });
+  $("dAmount").value = "";
+  $("dError").textContent = "";
+  renderDetail(); render(); save();
+});
+$("dClose").onclick = closeDetail;
+$("detailBg").addEventListener("click", (e) => { if (e.target === $("detailBg")) closeDetail(); });
+// "Modifier" : renommer la catégorie, changer le budget prévu ou la supprimer
+$("dEdit").onclick = () => { const cat = detailCat; closeDetail(); openSheet("variables", cat); };
+
+// ---------- 6. Fenêtre d'ajout / modification ----------
+
+function openSheet(type, item = null) {
+  editing = { type, item };
+  const textes = {
+    revenus:   { word: "un revenu",      ph: "Ex. : Salaire, CAF…",               amount: "Montant (€)" },
+    depenses:  { word: "un prélèvement", ph: "Ex. : Loyer, Assurance, Forfait…",  amount: "Montant (€)" },
+    epargne:   { word: "un objectif d'épargne", ph: "Ex. : Livret A, Vacances, Voiture…", amount: "Montant à mettre de côté ce mois (€)" },
+    variables: { word: "une catégorie",  ph: "Ex. : Courses, Électricité…",       amount: "Budget prévu pour le mois (€), facultatif" },
+  }[type];
+  $("sheetTitle").textContent = item ? "Modifier" : "Ajouter " + textes.word;
+  $("fLabel").placeholder = textes.ph;
+  $("fAmountLabel").textContent = textes.amount;
+  $("fLabel").value = item ? item.label : "";
+  // Pour une catégorie variable, le montant édité est le budget prévu
+  const valeur = item ? (type === "variables" ? item.prevu : item.montant) : "";
+  $("fAmount").value = valeur ? String(valeur).replace(".", ",") : "";
+  $("fDelete").hidden = !item;
+  $("fError").textContent = "";
+  $("sheetBg").classList.add("open");
+  setTimeout(() => $("fLabel").focus(), 50);
+}
+
+function closeSheet() { $("sheetBg").classList.remove("open"); editing = null; }
+
+$("sheet").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const label = $("fLabel").value.trim();
+  const montant = Math.round(parseAmount($("fAmount").value) * 100) / 100;
+  if (!label) return ($("fError").textContent = "Donne un nom à cette ligne.");
+
+  const list = month[editing.type];
+
+  // Catégorie variable : le budget prévu est facultatif
+  if (editing.type === "variables") {
+    if ($("fAmount").value.trim() && !(montant >= 0))
+      return ($("fError").textContent = "Le budget prévu doit être un nombre.");
+    const prevu = montant > 0 ? montant : 0;
+    if (editing.item) { editing.item.label = label; editing.item.prevu = prevu; }
+    else list.push({ id: newId(), label, prevu, achats: [] });
+    previous = null;
+    closeSheet(); render(); save();
+    return;
+  }
+
+  if (!(montant > 0)) return ($("fError").textContent = "Indique un montant supérieur à 0.");
+  if (editing.item) {
+    editing.item.label = label;
+    editing.item.montant = montant;
+  } else {
+    const nouveau = { id: newId(), label, montant };
+    // "paye" = prélèvement passé, ou épargne versée
+    if (editing.type === "depenses" || editing.type === "epargne") nouveau.paye = false;
+    list.push(nouveau);
+  }
+  previous = null;
+  closeSheet(); render(); save();
+});
+
+$("fDelete").onclick = () => {
+  const list = month[editing.type];
+  month[editing.type] = list.filter((x) => x !== editing.item);
+  closeSheet(); render(); save();
+};
+$("fCancel").onclick = closeSheet;
+$("sheetBg").addEventListener("click", (e) => { if (e.target === $("sheetBg")) closeSheet(); });
+
+// ---------- 7. Boutons ----------
+
+document.querySelectorAll("[data-add]").forEach((btn) =>
+  btn.addEventListener("click", () => openSheet(btn.dataset.add)));
+
+$("prev").onclick = async () => { await saving; current = shiftMonth(current, -1); loadMonth(); };
+$("next").onclick = async () => { await saving; current = shiftMonth(current, 1); loadMonth(); };
+
+$("copyBtn").onclick = () => {
+  month.revenus = (previous.revenus || []).map((r) => ({ ...r, id: newId() }));
+  month.depenses = (previous.depenses || []).map((d) => ({ ...d, id: newId(), paye: false }));
+  month.epargne = (previous.epargne || []).map((e) => ({ ...e, id: newId(), paye: false }));
+  // Les catégories variables gardent leur nom et leur budget, mais repartent à 0 €
+  month.variables = (previous.variables || []).map((c) => ({ id: newId(), label: c.label, prevu: c.prevu || 0, achats: [] }));
+  previous = null;
+  render(); save();
+};
+
+// ---------- 7 bis. Options (thème + alerte rouge) ----------
+// Les options sont enregistrées comme un "mois" spécial nommé "settings".
+
+let settings = { theme: "auto", couleur: "minuit", alerteRouge: true, replie: {} };
+
+// Palettes de couleurs : [nom, couleur claire, fond doux clair, fond de page clair, couleur en thème sombre]
+const PALETTES = {
+  minuit:    ["Minuit",    "#1f2937", "#e8e9eb", "#f3f3f1", "#e5e7eb"],
+  ardoise:   ["Ardoise",   "#475569", "#e6eaef", "#f2f4f6", "#cbd5e1"],
+  ocean:     ["Océan",     "#2563eb", "#e3ecfd", "#f2f5f9", "#60a5fa"],
+  indigo:    ["Indigo",    "#4338ca", "#e6e5fa", "#f4f4fa", "#a5b4fc"],
+  lavande:   ["Lavande",   "#7c3aed", "#efe7fd", "#f6f4fa", "#c4b5fd"],
+  framboise: ["Framboise", "#be185d", "#fbe4ef", "#faf3f6", "#f9a8d4"],
+  turquoise: ["Turquoise", "#0e7490", "#e0f2f6", "#f1f7f8", "#67e8f9"],
+  sapin:     ["Sapin",     "#0f766e", "#e3f1ee", "#f4f5f2", "#2dd4bf"],
+  olive:     ["Olive",     "#4d7c0f", "#ebf3df", "#f5f6f0", "#a3e635"],
+  soleil:    ["Soleil",    "#b45309", "#fbeedc", "#faf6ef", "#fbbf24"],
+  chocolat:  ["Chocolat",  "#7c4a2d", "#f3e8e1", "#f8f4f1", "#d6a98b"],
+  sable:     ["Sable",     "#8a7b5c", "#efeadf", "#f7f5f0", "#d6c7a1"],
+};  // replie : sections repliées
+const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+// Applique le thème : "auto" suit le réglage du téléphone
+function applyTheme() {
+  const dark = settings.theme === "dark" || (settings.theme === "auto" && darkQuery.matches);
+  document.documentElement.classList.toggle("dark", dark);
+  // Couleur choisie : on remplace les variables CSS de la couleur principale
+  const [, clair, doux, fond, sombre] = PALETTES[settings.couleur] || PALETTES.minuit;
+  const st = document.documentElement.style;
+  if (dark) {
+    st.setProperty("--accent", sombre);
+    st.setProperty("--accent-soft", "color-mix(in srgb, " + sombre + " 16%, #1c1f1d)");
+    st.setProperty("--on-accent", "#111827");
+    st.removeProperty("--bg");
+  } else {
+    st.setProperty("--accent", clair);
+    st.setProperty("--accent-soft", doux);
+    st.setProperty("--on-accent", "#ffffff");
+    st.setProperty("--bg", fond);
+  }
+  updateThemeColor();
+}
+darkQuery.addEventListener("change", applyTheme);
+
+// Couleur de la barre du navigateur sur mobile
+function updateThemeColor() {
+  // Même couleur que le fond de la page
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  document.querySelector('meta[name="theme-color"]').content = bg || "#f3f3f1";
+}
+
+function renderOptions() {
+  document.querySelectorAll("#themeChoice button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.theme === settings.theme));
+  $("optRed").checked = settings.alerteRouge;
+  // Pastilles de couleur
+  const box = $("colorChoice");
+  box.innerHTML = "";
+  const dark = document.documentElement.classList.contains("dark");
+  for (const [cle, [nom, clair, , , sombre]] of Object.entries(PALETTES)) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "swatch" + (settings.couleur === cle ? " on" : "");
+    b.innerHTML = `<i style="background:${dark ? sombre : clair}"></i>`;
+    b.append(nom);
+    b.onclick = () => { settings.couleur = cle; applyTheme(); renderOptions(); saveSettings(); };
+    box.appendChild(b);
+  }
+}
+
+function saveSettings() {
+  // Copie locale pour appliquer le thème dès l'ouverture, sans flash
+  try {
+    localStorage.setItem("budget-theme", settings.theme);
+    localStorage.setItem("budget-couleur", settings.couleur);
+  } catch (e) {}
+  storage.save("settings", { ...settings }).catch(() =>
+    setStatus("⚠️ Impossible d'enregistrer les options."));
+}
+
+document.querySelectorAll("#themeChoice button").forEach((b) =>
+  b.addEventListener("click", () => {
+    settings.theme = b.dataset.theme;
+    applyTheme(); renderOptions(); saveSettings();
+  }));
+$("optRed").addEventListener("change", () => {
+  settings.alerteRouge = $("optRed").checked;
+  render(); saveSettings();
+});
+$("openOptions").onclick = () => { renderOptions(); resumeCompte(); $("optionsBg").classList.add("open"); };
+$("openAccount").onclick = () => { renderLockOptions(); $("accountBg").classList.add("open"); };
+$("closeAccount").onclick = () => $("accountBg").classList.remove("open");
+$("accountBg").addEventListener("click", (e) => { if (e.target === $("accountBg")) $("accountBg").classList.remove("open"); });
+$("closeOptions").onclick = () => $("optionsBg").classList.remove("open");
+$("optionsBg").addEventListener("click", (e) => {
+  if (e.target === $("optionsBg")) $("optionsBg").classList.remove("open");
+});
+
+// Thème mémorisé sur l'appareil : appliqué tout de suite au démarrage
+try {
+  settings.theme = localStorage.getItem("budget-theme") || "auto";
+  settings.couleur = localStorage.getItem("budget-couleur") || "minuit";
+} catch (e) {}
+applyTheme();
+
+// Sections dépliables : on mémorise lesquelles sont repliées
+function applyCollapsed() {
+  document.querySelectorAll("section[data-section]").forEach((sec) =>
+    sec.classList.toggle("collapsed", !!(settings.replie || {})[sec.dataset.section]));
+}
+document.querySelectorAll("section[data-section] h2.toggle").forEach((h2) => {
+  const toggle = () => {
+    const nom = h2.parentElement.dataset.section;
+    settings.replie = { ...(settings.replie || {}), [nom]: !(settings.replie || {})[nom] };
+    applyCollapsed(); saveSettings();
+  };
+  h2.addEventListener("click", toggle);
+  h2.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+});
+
+// ---------- 7 ter. Écrans qui glissent (Budget / Bourse) ----------
+
+const pagesEl = $("pages");
+let activePage = 0;
+
+// Hauteur du conteneur = hauteur de l'écran affiché (évite un grand vide sous l'écran court)
+function fitHeight() {
+  pagesEl.style.height = pagesEl.children[activePage].offsetHeight + "px";
+}
+function setActive(i) {
+  activePage = i;
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", +b.dataset.page === i));
+  fitHeight();
+}
+document.querySelectorAll("#tabs button").forEach((b) =>
+  b.addEventListener("click", () => {
+    const i = +b.dataset.page;
+    pagesEl.scrollTo({ left: pagesEl.children[i].offsetLeft - pagesEl.children[0].offsetLeft, behavior: "smooth" });
+    setActive(i);
+  }));
+// Quand on glisse avec le doigt, on met à jour l'onglet
+pagesEl.addEventListener("scroll", () => {
+  const i = Math.round(pagesEl.scrollLeft / (pagesEl.clientWidth + 32));
+  if (i !== activePage) setActive(i);
+}, { passive: true });
+// Recalcule la hauteur dès que le contenu change
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(fitHeight);
+  [...pagesEl.children].forEach((p) => ro.observe(p));
+}
+window.addEventListener("resize", fitHeight);
+
+// ---------- 7 quater. Bourse ----------
+// Données communes à tous les mois, enregistrées sous la clé "bourse" :
+//   placements : [{ id, nom, quantite, prixAchat, cours, lien, maj }]
+//   indices    : [{ id, nom, valeur, variation, lien, maj }]
+// "maj" = date de la dernière mise à jour du cours.
+
+let bourse = { placements: [], indices: [] };
+let bEditing = null;
+
+const nombre = (n) => n.toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+const pourcent = (n) => (n > 0 ? "+" : "") + n.toLocaleString("fr-FR", { maximumFractionDigits: 2 }) + " %";
+const lienCours = (x) => x.lien || "https://www.google.com/search?q=" + encodeURIComponent("cours " + x.nom);
+
+function depuis(iso) {
+  if (!iso) return "";
+  const jours = Math.floor((Date.now() - new Date(iso)) / 86400000);
+  return jours <= 0 ? "maj aujourd'hui" : jours === 1 ? "maj hier" : "maj il y a " + jours + " j";
+}
+
+async function loadBourse() {
+  const data = await storage.load("bourse");
+  bourse = { placements: (data && data.placements) || [], indices: (data && data.indices) || [] };
+  renderBourse();
+}
+
+let bSaveTimer = null;
+function saveBourse() {
+  clearTimeout(bSaveTimer);
+  const copie = JSON.parse(JSON.stringify(bourse));
+  bSaveTimer = setTimeout(() => storage.save("bourse", copie).catch(() =>
+    setStatus("⚠️ Impossible d'enregistrer la bourse.")), 400);
+}
+
+function renderBourse() {
+  // Totaux du portefeuille (si le cours est inconnu, on prend le prix d'achat)
+  let investi = 0, valeur = 0;
+  for (const p of bourse.placements) {
+    investi += p.quantite * p.prixAchat;
+    valeur += p.quantite * (p.cours ?? p.prixAchat);
+  }
+  const gain = valeur - investi;
+  $("pfValue").textContent = euros(valeur);
+  $("pfInvested").textContent = euros(investi);
+  $("pfGain").textContent = (gain > 0 ? "+" : "") + euros(gain);
+  $("pfInfo").textContent = investi > 0 ? "Performance : " + pourcent((gain / investi) * 100) : "";
+  $("countPf").textContent = bourse.placements.length ? euros(valeur) : "";
+  $("countIdx").textContent = bourse.indices.length ? bourse.indices.length + " suivi(s)" : "";
+
+  // Liste des placements
+  const ulP = $("listPf");
+  ulP.innerHTML = "";
+  if (!bourse.placements.length)
+    ulP.innerHTML = `<div class="empty">Ajoute tes actions ou ETF avec la quantité et le prix d'achat.</div>`;
+  for (const p of bourse.placements) {
+    const v = p.quantite * (p.cours ?? p.prixAchat);
+    const g = p.prixAchat > 0 && p.cours != null ? ((p.cours - p.prixAchat) / p.prixAchat) * 100 : null;
+    ulP.appendChild(bourseRow("placements", p,
+      p.nom,
+      nombre(p.quantite) + " × " + (p.cours != null ? euros(p.cours) : "cours ?") + (p.maj ? " · " + depuis(p.maj) : ""),
+      euros(v),
+      g == null ? "" : pourcent(g), g));
+  }
+
+  // Liste des indices
+  const ulI = $("listIdx");
+  ulI.innerHTML = "";
+  if (!bourse.indices.length) {
+    const btn = document.createElement("button");
+    btn.className = "add";
+    btn.textContent = "Ajouter CAC 40, S&P 500 et Nasdaq";
+    btn.onclick = () => {
+      bourse.indices = ["CAC 40", "S&P 500", "Nasdaq"].map((nom) => ({ id: newId(), nom, valeur: null, variation: null }));
+      renderBourse(); saveBourse();
+    };
+    ulI.appendChild(btn);
+  }
+  for (const x of bourse.indices) {
+    ulI.appendChild(bourseRow("indices", x,
+      x.nom,
+      x.maj ? depuis(x.maj) : "Touche pour saisir la valeur",
+      x.valeur != null ? nombre(x.valeur) + " pts" : "—",
+      x.variation != null ? pourcent(x.variation) : "", x.variation));
+  }
+}
+
+// Une ligne : nom + détail à gauche, valeur + variation à droite, bouton ↗ vers le cours en direct
+function bourseRow(type, item, titre, detail, valeur, variation, signe) {
+  const li = document.createElement("li");
+  const left = document.createElement("div");
+  left.className = "two-line";
+  const n = document.createElement("span"); n.className = "name"; n.textContent = titre;
+  const d = document.createElement("small"); d.textContent = detail;
+  left.append(n, d);
+  const right = document.createElement("div");
+  right.className = "right";
+  const v = document.createElement("span"); v.className = "val"; v.textContent = valeur;
+  const vr = document.createElement("small"); vr.textContent = variation;
+  if (signe > 0) vr.classList.add("pos");
+  if (signe < 0) vr.classList.add("neg");
+  right.append(v, vr);
+  const a = document.createElement("a");
+  a.className = "ext-link"; a.href = lienCours(item); a.target = "_blank"; a.rel = "noopener";
+  a.textContent = "↗"; a.setAttribute("aria-label", "Voir le cours de " + titre);
+  a.onclick = (e) => e.stopPropagation();
+  li.append(left, right, a);
+  li.onclick = () => openBourseSheet(type, item);
+  return li;
+}
+
+function openBourseSheet(type, item = null) {
+  bEditing = { type, item };
+  const pl = type === "placements";
+  $("bTitle").textContent = item ? "Modifier" : pl ? "Ajouter un placement" : "Ajouter un indice";
+  $("bNom").placeholder = pl ? "Ex. : ETF MSCI World, TotalEnergies…" : "Ex. : CAC 40";
+  $("wrapQte").hidden = !pl;
+  $("wrapAchat").hidden = !pl;
+  $("wrapVar").hidden = pl;
+  $("bCoursLabel").textContent = pl ? "Cours actuel par part (€)" : "Valeur actuelle (points)";
+  const fmt = (n) => (n == null ? "" : String(n).replace(".", ","));
+  $("bNom").value = item ? item.nom : "";
+  $("bQte").value = item && pl ? fmt(item.quantite) : "";
+  $("bAchat").value = item && pl ? fmt(item.prixAchat) : "";
+  $("bCours").value = item ? fmt(pl ? item.cours : item.valeur) : "";
+  $("bVar").value = item && !pl ? fmt(item.variation) : "";
+  $("bLien").value = item ? item.lien || "" : "";
+  $("bDelete").hidden = !item;
+  $("bError").textContent = "";
+  $("bSheetBg").classList.add("open");
+  // Si la ligne existe déjà, on va droit au cours (c'est ce qu'on met à jour le plus souvent)
+  setTimeout(() => (item ? $("bCours") : $("bNom")).focus(), 50);
+}
+function closeBourseSheet() { $("bSheetBg").classList.remove("open"); bEditing = null; }
+
+// Lit un champ nombre facultatif : null si vide, NaN si invalide
+const champ = (id) => ($(id).value.trim() === "" ? null : parseAmount($(id).value));
+
+$("bSheet").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const err = (t) => ($("bError").textContent = t);
+  const nom = $("bNom").value.trim();
+  if (!nom) return err("Donne un nom.");
+  let lien = $("bLien").value.trim();
+  if (lien && !/^https?:\/\//i.test(lien)) lien = "https://" + lien;
+  const cours = champ("bCours");
+  if (Number.isNaN(cours) || (cours != null && cours < 0)) return err("Le cours doit être un nombre positif.");
+
+  if (bEditing.type === "placements") {
+    const quantite = champ("bQte"), prixAchat = champ("bAchat");
+    if (!(quantite > 0)) return err("Indique une quantité supérieure à 0.");
+    if (prixAchat == null || !(prixAchat >= 0)) return err("Indique le prix d'achat par part.");
+    const p = bEditing.item || { id: newId() };
+    if (cours !== (p.cours ?? null)) p.maj = new Date().toISOString();
+    Object.assign(p, { nom, quantite, prixAchat, cours, lien });
+    if (!bEditing.item) bourse.placements.push(p);
+  } else {
+    const variation = champ("bVar");
+    if (Number.isNaN(variation)) return err("La variation doit être un nombre (ex. : -0,8).");
+    const x = bEditing.item || { id: newId() };
+    if (cours !== (x.valeur ?? null) || variation !== (x.variation ?? null)) x.maj = new Date().toISOString();
+    Object.assign(x, { nom, valeur: cours, variation, lien });
+    if (!bEditing.item) bourse.indices.push(x);
+  }
+  closeBourseSheet(); renderBourse(); saveBourse();
+});
+$("bDelete").onclick = () => {
+  bourse[bEditing.type] = bourse[bEditing.type].filter((x) => x !== bEditing.item);
+  closeBourseSheet(); renderBourse(); saveBourse();
+};
+$("bCancel").onclick = closeBourseSheet;
+$("bSheetBg").addEventListener("click", (e) => { if (e.target === $("bSheetBg")) closeBourseSheet(); });
+document.querySelectorAll("[data-bourse]").forEach((b) =>
+  b.addEventListener("click", () => openBourseSheet(b.dataset.bourse)));
+
+// ---------- 7 quinquies. Verrouillage (code PIN + empreinte) ----------
+// Le code n'est jamais enregistré en clair : on garde seulement son empreinte SHA-256
+// (settings.pin = { hash, salt, longueur }), synchronisée avec le reste des options.
+// L'empreinte digitale utilise WebAuthn ; elle est propre à chaque appareil,
+// donc son identifiant est gardé dans la mémoire du navigateur ("budget-bio").
+// Attention : c'est un verrou contre les regards curieux, pas un chiffrement des données.
+
+const VERROU_APRES = 2 * 60 * 1000;   // reverrouille après 2 min en arrière-plan
+let saisie = "";
+let essais = 0;
+let bloqueJusqua = 0;
+
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const deb64 = (txt) => Uint8Array.from(atob(txt), (c) => c.charCodeAt(0));
+const aleatoire = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+async function hacher(code, salt) {
+  const data = new TextEncoder().encode(salt + ":" + code);
+  return b64(await crypto.subtle.digest("SHA-256", data));
+}
+
+const bioId = () => { try { return localStorage.getItem("budget-bio"); } catch (e) { return null; } };
+const setBioId = (id) => { try { id ? localStorage.setItem("budget-bio", id) : localStorage.removeItem("budget-bio"); } catch (e) {} };
+const verrouActif = () => !!(settings.pin && settings.pin.hash);
+
+// --- Écran de verrouillage ---
+function construireClavier() {
+  const kp = $("keypad");
+  kp.innerHTML = "";
+  for (const k of ["1","2","3","4","5","6","7","8","9","","0","⌫"]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = k;
+    if (k === "") { b.className = "ghost"; b.disabled = true; }
+    if (k === "⌫") { b.className = "ghost"; b.setAttribute("aria-label", "Effacer"); }
+    b.onclick = () => (k === "⌫" ? (saisie = saisie.slice(0, -1), dessinerPoints()) : taper(k));
+    kp.appendChild(b);
+  }
+}
+function dessinerPoints() {
+  const n = (settings.pin && settings.pin.longueur) || 4;
+  $("lockDots").innerHTML = Array.from({ length: n }, (_, i) => `<i class="${i < saisie.length ? "on" : ""}"></i>`).join("");
+}
+async function taper(chiffre) {
+  if (Date.now() < bloqueJusqua) return;
+  const n = settings.pin.longueur;
+  if (saisie.length >= n) return;
+  saisie += chiffre;
+  dessinerPoints();
+  if (saisie.length < n) return;
+  const ok = (await hacher(saisie, settings.pin.salt)) === settings.pin.hash;
+  if (ok) return deverrouiller();
+  essais++;
+  saisie = "";
+  $("lockDots").classList.add("shake");
+  setTimeout(() => { $("lockDots").classList.remove("shake"); dessinerPoints(); }, 350);
+  if (essais >= 5) {
+    // Après 5 erreurs : pause de 30 secondes
+    bloqueJusqua = Date.now() + 30000;
+    essais = 0;
+    message("Trop d'essais. Réessaie dans 30 secondes.", true);
+    setTimeout(() => message("Entre ton code"), 30000);
+  } else {
+    message("Code incorrect", true);
+  }
+}
+function message(txt, erreur = false) {
+  $("lockMsg").textContent = txt;
+  $("lockMsg").classList.toggle("err", erreur);
+}
+function verrouiller() {
+  if (!verrouActif()) return;
+  saisie = "";
+  message("Entre ton code");
+  dessinerPoints();
+  $("bioUnlock").hidden = !bioId();
+  $("lock").classList.add("open");
+  try { localStorage.setItem("budget-lock", "1"); } catch (e) {}
+  if (bioId()) essayerEmpreinte(true);
+}
+function deverrouiller() {
+  saisie = "";
+  essais = 0;
+  $("lock").classList.remove("open");
+}
+
+// Clavier physique (sur ordinateur)
+document.addEventListener("keydown", (e) => {
+  if (!$("lock").classList.contains("open")) return;
+  if (/^\d$/.test(e.key)) taper(e.key);
+  if (e.key === "Backspace") { saisie = saisie.slice(0, -1); dessinerPoints(); }
+});
+
+// Reverrouille quand l'appli revient après un moment en arrière-plan
+let cacheLe = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) cacheLe = Date.now();
+  else if (cacheLe && Date.now() - cacheLe > VERROU_APRES) verrouiller();
+});
+
+// --- Empreinte digitale (WebAuthn) ---
+async function empreinteDispo() {
+  try {
+    return !!(window.PublicKeyCredential &&
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
+  } catch (e) { return false; }
+}
+async function activerEmpreinte() {
+  const cred = await navigator.credentials.create({ publicKey: {
+    challenge: aleatoire(32),
+    rp: { name: "Budget" },
+    user: { id: aleatoire(16), name: "mon-budget", displayName: "Budget" },
+    pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+    authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "discouraged" },
+    timeout: 60000,
+  }});
+  setBioId(b64(cred.rawId));
+}
+async function essayerEmpreinte(silencieux = false) {
+  try {
+    await navigator.credentials.get({ publicKey: {
+      challenge: aleatoire(32),
+      allowCredentials: [{ type: "public-key", id: deb64(bioId()) }],
+      userVerification: "required",
+      timeout: 60000,
+    }});
+    deverrouiller();
+  } catch (e) {
+    if (!silencieux) message("Empreinte non reconnue, utilise ton code.", true);
+  }
+}
+$("bioUnlock").onclick = () => essayerEmpreinte();
+
+// --- Réglages du verrouillage dans Options ---
+// Résumé affiché dans le menu Options
+function resumeCompte() {
+  $("accountSummary").textContent = !verrouActif()
+    ? "Aucun verrouillage"
+    : "Code PIN actif" + (bioId() ? " · empreinte active" : "");
+}
+
+async function renderLockOptions(note, type) {
+  const bouton = (box, txt, fn) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = txt; b.onclick = fn; box.appendChild(b);
+  };
+  const badge = (id, actif, txt) => { $(id).textContent = txt; $(id).classList.toggle("on", actif); };
+
+  // --- Code PIN ---
+  const pinBox = $("pinButtons");
+  pinBox.innerHTML = "";
+  if (!verrouActif()) {
+    badge("pinBadge", false, "Désactivé");
+    bouton(pinBox, "Créer un code PIN", ouvrirPin);
+  } else {
+    badge("pinBadge", true, "Actif · " + settings.pin.longueur + " chiffres");
+    bouton(pinBox, "Modifier le code", ouvrirPin);
+    bouton(pinBox, "Supprimer le code", () => {
+      settings.pin = null; setBioId(null);
+      try { localStorage.removeItem("budget-lock"); } catch (e) {}
+      saveSettings(); renderLockOptions("Verrouillage retiré. L'empreinte a aussi été désactivée.");
+    });
+  }
+
+  // --- Empreinte digitale ---
+  const bioBox = $("bioButtons");
+  bioBox.innerHTML = "";
+  const dispo = await empreinteDispo();
+  if (bioId()) {
+    badge("bioBadge", true, "Active sur cet appareil");
+    bouton(bioBox, "Tester", async () => {
+      try {
+        await navigator.credentials.get({ publicKey: {
+          challenge: aleatoire(32), allowCredentials: [{ type: "public-key", id: deb64(bioId()) }],
+          userVerification: "required", timeout: 60000 }});
+        renderLockOptions("Empreinte reconnue ✓", "ok");
+      } catch (e) { renderLockOptions("Empreinte non reconnue ou annulée.", "err"); }
+    });
+    bouton(bioBox, "Désactiver", () => { setBioId(null); renderLockOptions("Empreinte désactivée sur cet appareil."); });
+    $("bioInfo").textContent = "";
+  } else if (!verrouActif()) {
+    badge("bioBadge", false, "Désactivée");
+    $("bioInfo").textContent = "Crée d'abord un code PIN : il sert de secours si l'empreinte ne marche pas.";
+  } else if (!dispo) {
+    badge("bioBadge", false, "Indisponible");
+    $("bioInfo").textContent = "Cet appareil ou ce navigateur ne propose pas l'empreinte digitale ici.";
+  } else {
+    badge("bioBadge", false, "Désactivée");
+    bouton(bioBox, "Activer l'empreinte", async () => {
+      try {
+        await activerEmpreinte();
+        renderLockOptions("Empreinte activée sur cet appareil.", "ok");
+      } catch (e) {
+        renderLockOptions("Le navigateur a refusé l'empreinte ici. Le code PIN reste actif.", "err");
+      }
+    });
+    $("bioInfo").textContent = "L'empreinte s'active séparément sur chaque appareil.";
+  }
+
+  // Note générale
+  const n = $("lockNote");
+  n.className = "opt-note" + (type ? " " + type : "");
+  n.textContent = note || (verrouActif()
+    ? "Le code est demandé à l'ouverture et après 2 minutes en arrière-plan."
+    : "");
+  resumeCompte();
+}
+
+function ouvrirPin() {
+  $("pin1").value = ""; $("pin2").value = ""; $("pinError").textContent = "";
+  $("pinBg").classList.add("open");
+  setTimeout(() => $("pin1").focus(), 50);
+}
+$("pinCancel").onclick = () => $("pinBg").classList.remove("open");
+$("pinForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const a = $("pin1").value, c = $("pin2").value;
+  if (!/^\d{4,6}$/.test(a)) return ($("pinError").textContent = "Le code doit faire 4 à 6 chiffres.");
+  if (a !== c) return ($("pinError").textContent = "Les deux codes ne sont pas identiques.");
+  const salt = b64(aleatoire(16));
+  settings.pin = { hash: await hacher(a, salt), salt, longueur: a.length };
+  try { localStorage.setItem("budget-lock", "1"); } catch (e) {}
+  saveSettings();
+  $("pinBg").classList.remove("open");
+  renderLockOptions("Code enregistré. Il sera demandé à la prochaine ouverture.", "ok");
+});
+
+construireClavier();
+// Si l'appli était verrouillée la dernière fois, on cache tout de suite le contenu
+try { if (localStorage.getItem("budget-lock") === "1") $("lock").classList.add("open"); } catch (e) {}
+
+// ---------- 7 sexies. Sauvegarde et transfert ----------
+
+function noteSauvegarde(txt, type) {
+  $("bkNote").className = "opt-note" + (type ? " " + type : "");
+  $("bkNote").textContent = txt;
+}
+async function exporterTexte() {
+  const donnees = await storage.exportAll();
+  return JSON.stringify({ app: "mon-budget", version: 1, date: new Date().toISOString(), donnees });
+}
+$("bkCopy").onclick = async () => {
+  try {
+    const txt = await exporterTexte();
+    try {
+      await navigator.clipboard.writeText(txt);
+      noteSauvegarde("Données copiées ✓ Colle-les dans l'appli installée (Importer).", "ok");
+    } catch (e) {
+      // Presse-papiers refusé : on affiche le texte pour le copier à la main
+      $("bkText").value = txt;
+      $("bkText").select();
+      noteSauvegarde("Copie automatique refusée : le texte est dans le champ ci-dessus, copie-le à la main.", "err");
+    }
+  } catch (e) { noteSauvegarde("Impossible de lire tes données pour le moment.", "err"); }
+};
+$("bkFile").onclick = async () => {
+  try {
+    const txt = await exporterTexte();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([txt], { type: "application/json" }));
+    a.download = "budget-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    noteSauvegarde("Fichier téléchargé (si rien ne se passe, utilise « Copier mes données »).", "ok");
+  } catch (e) { noteSauvegarde("Téléchargement impossible ici : utilise « Copier mes données ».", "err"); }
+};
+
+async function importerTexte(txt) {
+  let obj;
+  try { obj = JSON.parse(txt); } catch (e) { return noteSauvegarde("Ce texte n'est pas une sauvegarde valide.", "err"); }
+  const donnees = obj && obj.app === "mon-budget" ? obj.donnees : null;
+  if (!donnees || typeof donnees !== "object") return noteSauvegarde("Ce texte n'est pas une sauvegarde de Budget.", "err");
+  const cles = Object.keys(donnees).filter((k) => CLE_VALIDE.test(k));
+  if (!cles.length) return noteSauvegarde("Aucune donnée à importer.", "err");
+  try {
+    for (const k of cles) await storage.save(k, donnees[k]);   // une écriture à la fois
+  } catch (e) { return noteSauvegarde("L'import a échoué en cours de route. Réessaie.", "err"); }
+  const mois = cles.filter((k) => /^\d{4}-\d{2}$/.test(k)).length;
+  noteSauvegarde(`Import terminé ✓ ${mois} mois${cles.includes("bourse") ? ", la bourse" : ""}${cles.includes("settings") ? " et les options" : ""}.`, "ok");
+  $("bkText").value = "";
+  // On recharge tout avec les nouvelles données
+  const saved = await storage.load("settings");
+  if (saved) { settings = { ...settings, ...saved }; applyTheme(); applyCollapsed(); }
+  await loadMonth(); await loadBourse();
+}
+$("bkImport").onclick = () => importerTexte($("bkText").value.trim());
+$("bkPick").onclick = () => $("bkInput").click();
+$("bkInput").addEventListener("change", async () => {
+  const f = $("bkInput").files[0];
+  if (f) importerTexte(await f.text());
+  $("bkInput").value = "";
+});
+$("openBackup").onclick = () => {
+  noteSauvegarde("");
+  // Dans Claude, les téléchargements sont bloqués : on garde seulement la copie
+  $("bkFile").hidden = !!window.claude;
+  $("backupBg").classList.add("open");
+};
+$("closeBackup").onclick = () => $("backupBg").classList.remove("open");
+$("backupBg").addEventListener("click", (e) => { if (e.target === $("backupBg")) $("backupBg").classList.remove("open"); });
+
+// ---------- 8. Démarrage ----------
+
+(async () => {
+  render();               // affiche tout de suite la page vide
+  await storage.init();   // puis branche le stockage
+  const saved = await storage.load("settings");   // options enregistrées
+  if (saved) { settings = { ...settings, ...saved }; applyTheme(); applyCollapsed(); }
+  // Verrouillage : demandé à l'ouverture si un code est défini
+  if (verrouActif()) verrouiller();
+  else { $("lock").classList.remove("open"); try { localStorage.removeItem("budget-lock"); } catch (e) {} }
+  await loadMonth();      // et charge le mois en cours
+  await loadBourse();     // puis les placements (communs à tous les mois)
+  fitHeight();
+  // Version installée : on demande au navigateur de ne pas effacer les données
+  if (storage.mode === "local" && navigator.storage && navigator.storage.persist) {
+    try { await navigator.storage.persist(); } catch (e) {}
+  }
+})();
+
+// Version installée : le "service worker" permet d'ouvrir l'appli sans connexion.
+// (Dans Claude, il est refusé : ce n'est pas grave, on ignore l'erreur.)
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>

@@ -2,15 +2,15 @@
 // pour qu'elle s'ouvre même sans connexion.
 // Pense à changer VERSION à chaque mise à jour de l'appli, pour que les téléphones
 // récupèrent la nouvelle version.
-const VERSION = "mon-budget-v4";
+const VERSION = "mon-budget-v5";
 const FICHIERS = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./icons/icon-maskable-512.png",
-  "./icons/apple-touch-icon.png",
+  "./icons/icon-192-v2.png",
+  "./icons/icon-512-v2.png",
+  "./icons/icon-maskable-512-v2.png",
+  "./icons/apple-touch-icon-v2.png",
 ];
 
 // Installation : on met les fichiers en cache

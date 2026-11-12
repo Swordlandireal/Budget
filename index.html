@@ -71,6 +71,9 @@
     display: grid; place-items: center; color: var(--muted); text-decoration: none; font-size: 15px;
   }
   .opt-field[hidden] { display: none; }
+  .report-row .amount.pos { color: var(--in); }
+  .report-row .amount.neg { color: var(--danger); }
+  .report-row .amount:not(.pos):not(.neg) { color: var(--muted); }
 
   /* ===== Écran de verrouillage ===== */
   .lock {
@@ -459,6 +462,23 @@
   </form>
 </div>
 
+<!-- Report du mois précédent -->
+<div class="sheet-bg" id="reportBg">
+  <form class="sheet" id="reportForm" autocomplete="off">
+    <h3>Report du mois précédent</h3>
+    <div class="opt-note" id="rAuto" style="margin-top:0"></div>
+    <label for="rAmount">Montant à utiliser (€)</label>
+    <input id="rAmount" inputmode="decimal" placeholder="0,00">
+    <div class="opt-note">Laisse vide pour garder le calcul automatique. Utile pour le premier mois (ce que tu as déjà sur ton compte) ou pour recaler sur ton solde bancaire. Un montant négatif s'écrit avec un « - ».</div>
+    <div class="error" id="rError"></div>
+    <div class="actions">
+      <button type="button" class="btn-delete" id="rAutoBtn">Calcul auto</button>
+      <button type="button" class="btn-ghost" id="rCancel">Annuler</button>
+      <button type="submit" class="btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</div>
+
 <!-- Détail d'une catégorie variable : liste des dépenses + ajout rapide -->
 <div class="sheet-bg" id="detailBg">
   <form class="sheet" id="detail" autocomplete="off">
@@ -705,17 +725,21 @@ let editing = null;                // ligne en cours de modification
 async function loadMonth() {
   setStatus("Chargement…");
   const key = monthKey(current);
-  const data = await storage.load(key);
+  // On lit d'abord la copie en mémoire de tous les mois (voir loadAllMonths)
+  const data = key in allMonths ? allMonths[key] : await storage.load(key);
   month = {
     revenus: (data && data.revenus) || [],
     depenses: (data && data.depenses) || [],
     epargne: (data && data.epargne) || [],
     variables: (data && data.variables) || [],
+    // Solde reporté saisi à la main (null = calcul automatique)
+    reportManuel: data && typeof data.reportManuel === "number" ? data.reportManuel : null,
   };
   // Si le mois est vide, on regarde le mois précédent pour proposer de le copier
   previous = null;
   if (!lineCount(month)) {
-    const prev = await storage.load(monthKey(shiftMonth(current, -1)));
+    const prevKey = monthKey(shiftMonth(current, -1));
+    const prev = prevKey in allMonths ? allMonths[prevKey] : await storage.load(prevKey);
     if (prev && lineCount(prev)) previous = prev;
   }
   render();
@@ -731,11 +755,48 @@ function save() {
   clearTimeout(saveTimer);
   const key = monthKey(current);
   const snapshot = JSON.parse(JSON.stringify(month));
+  allMonths[key] = snapshot;   // la copie en mémoire suit immédiatement (pour les reports)
   saveTimer = setTimeout(() => {
     saving = saving.then(() => storage.save(key, snapshot)).catch(() =>
       setStatus("⚠️ La sauvegarde a échoué, tes dernières modifications risquent d'être perdues."));
   }, 400);
 }
+
+// ---------- 4 bis. Report d'un mois sur l'autre ----------
+// Le reste à la fin d'un mois (positif ou négatif) est ajouté au mois suivant.
+// Pour le calculer, on garde en mémoire tous les mois enregistrés.
+
+let allMonths = {};   // { "2026-10": {...}, "2026-11": {...} }
+
+async function loadAllMonths() {
+  try {
+    const tout = await storage.exportAll();
+    allMonths = {};
+    for (const k of Object.keys(tout)) if (/^\d{4}-\d{2}$/.test(k)) allMonths[k] = tout[k];
+  } catch (e) { /* sans la liste, les reports valent 0 : l'appli reste utilisable */ }
+}
+
+// Reste en fin de mois pour des données de mois et un report d'entrée donnés
+function resteFinDeMois(d, report) {
+  const s = (arr) => (arr || []).reduce((t, x) => t + (x.montant || 0), 0);
+  const variables = (d.variables || []).reduce((t, c) => t + s(c.achats), 0);
+  return report + s(d.revenus) - s(d.depenses) - s(d.epargne) - variables;
+}
+
+// Report calculé automatiquement pour le mois `key` : on part du premier mois enregistré
+// et on enchaîne les restes jusqu'au mois précédent. Un mois sans données laisse passer le report.
+function reportAuto(key) {
+  let report = 0;
+  for (const k of Object.keys(allMonths).sort()) {
+    if (k >= key) break;
+    const d = allMonths[k];
+    const entree = typeof d.reportManuel === "number" ? d.reportManuel : report;
+    report = resteFinDeMois(d, entree);
+  }
+  return Math.round(report * 100) / 100;
+}
+
+const reportDuMois = () => (month.reportManuel != null ? month.reportManuel : reportAuto(monthKey(current)));
 
 // Nombre total de lignes d'un mois (pour savoir s'il est vide)
 const lineCount = (m) =>
@@ -752,7 +813,8 @@ function render() {
   $("monthTitle").textContent = current.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 
   // Totaux
-  const totalIn = sum(month.revenus);
+  const report = reportDuMois();                  // reste du mois précédent (+ ou -)
+  const totalIn = sum(month.revenus) + report;   // les revenus incluent le report
   const totalVar = month.variables.reduce((t, c) => t + spent(c), 0);
   const totalOut = sum(month.depenses) + totalVar;
   // Reste à payer = prélèvements non cochés + ce qu'il reste des budgets variables prévus
@@ -786,7 +848,7 @@ function render() {
   $("barFill").style.width = pct + "%";
 
   // En-têtes de section : un résumé visible même quand la section est repliée
-  $("countIn").textContent = month.revenus.length ? euros(totalIn) : "";
+  $("countIn").textContent = euros(totalIn);
   $("countOut").textContent = month.depenses.length
     ? euros(sum(month.depenses)) + " · " + month.depenses.filter((d) => d.paye).length + "/" + month.depenses.length + " passés" : "";
   $("countSave").textContent = month.epargne.length
@@ -794,6 +856,7 @@ function render() {
 
   // Listes
   renderList($("listIn"), month.revenus, "revenus", "Aucun revenu pour ce mois.");
+  renderReportRow(report);
   renderList($("listOut"), month.depenses, "depenses", "Aucun prélèvement pour ce mois.");
   renderList($("listSave"), month.epargne, "epargne", "Indique combien tu veux mettre de côté ce mois-ci (Livret A, projet…).");
   renderVariables();
@@ -902,6 +965,44 @@ function renderVariables() {
     ul.appendChild(li);
   }
 }
+
+// "de novembre" / "d'octobre"
+const deMois = (nom) => (/^[aeiouéâ]/i.test(nom) ? "d'" : "de ") + nom;
+
+// Ligne "Report d'octobre" en tête des revenus
+function renderReportRow(report) {
+  const ul = $("listIn");
+  const li = document.createElement("li");
+  li.className = "report-row";
+  const nomMois = shiftMonth(current, -1).toLocaleDateString("fr-FR", { month: "long" });
+  const left = document.createElement("div");
+  left.className = "two-line";
+  const n = document.createElement("span");
+  n.className = "name";
+  n.textContent = "Report " + deMois(nomMois);
+  const d = document.createElement("small");
+  d.textContent = month.reportManuel != null ? "Montant saisi à la main" : "Reste de fin de mois, calculé automatiquement";
+  left.append(n, d);
+  const a = document.createElement("span");
+  a.className = "amount " + (report < 0 ? "neg" : report > 0 ? "pos" : "");
+  a.textContent = (report > 0 ? "+" : "") + euros(report);
+  li.append(left, a);
+  li.onclick = openReport;
+  ul.prepend(li);
+  // Si la liste n'avait que le message "Aucun revenu", on le garde sous le report
+}
+
+function openReport() {
+  const auto = reportAuto(monthKey(current));
+  const nomMois = shiftMonth(current, -1).toLocaleDateString("fr-FR", { month: "long" });
+  $("rAuto").textContent = "Calcul automatique : " + euros(auto) + " (reste à la fin " + deMois(nomMois) + ").";
+  $("rAmount").value = month.reportManuel != null ? String(month.reportManuel).replace(".", ",") : "";
+  $("rAmount").placeholder = String(auto).replace(".", ",");
+  $("rError").textContent = "";
+  $("rAutoBtn").hidden = month.reportManuel == null;
+  $("reportBg").classList.add("open");
+}
+function closeReport() { $("reportBg").classList.remove("open"); }
 
 function setStatus(txt) { $("status").textContent = txt; }
 
@@ -1661,7 +1762,7 @@ async function importerTexte(txt) {
   // On recharge tout avec les nouvelles données
   const saved = await storage.load("settings");
   if (saved) { settings = { ...settings, ...saved }; applyTheme(); applyCollapsed(); }
-  await loadMonth(); await loadBourse();
+  await loadAllMonths(); await loadMonth(); await loadBourse();
 }
 $("bkImport").onclick = () => importerTexte($("bkText").value.trim());
 $("bkPick").onclick = () => $("bkInput").click();
@@ -1679,11 +1780,29 @@ $("openBackup").onclick = () => {
 $("closeBackup").onclick = () => $("backupBg").classList.remove("open");
 $("backupBg").addEventListener("click", (e) => { if (e.target === $("backupBg")) $("backupBg").classList.remove("open"); });
 
+// ---------- 7 septies. Fenêtre du report ----------
+$("reportForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const txt = $("rAmount").value.trim();
+  if (txt === "") {
+    month.reportManuel = null;
+  } else {
+    const v = Math.round(parseAmount(txt) * 100) / 100;
+    if (Number.isNaN(v)) return ($("rError").textContent = "Indique un nombre (ex. : 105 ou -40,50).");
+    month.reportManuel = v;
+  }
+  closeReport(); render(); save();
+});
+$("rAutoBtn").onclick = () => { month.reportManuel = null; closeReport(); render(); save(); };
+$("rCancel").onclick = closeReport;
+$("reportBg").addEventListener("click", (e) => { if (e.target === $("reportBg")) closeReport(); });
+
 // ---------- 8. Démarrage ----------
 
 (async () => {
   render();               // affiche tout de suite la page vide
   await storage.init();   // puis branche le stockage
+  await loadAllMonths();  // tous les mois en mémoire, pour calculer les reports
   const saved = await storage.load("settings");   // options enregistrées
   if (saved) { settings = { ...settings, ...saved }; applyTheme(); applyCollapsed(); }
   // Verrouillage : demandé à l'ouverture si un code est défini

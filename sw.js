@@ -2,7 +2,7 @@
 // pour qu'elle s'ouvre même sans connexion.
 // Pense à changer VERSION à chaque mise à jour de l'appli, pour que les téléphones
 // récupèrent la nouvelle version.
-const VERSION = "mon-budget-v1";
+const VERSION = "mon-budget-v2";
 const FICHIERS = [
   "./",
   "./index.html",
